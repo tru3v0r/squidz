@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "squidz Browser Bridge",
+  "version": "0.1.0",
+  "description": "Shares active tab domain with the local squidz desktop app.",
+  "permissions": ["tabs", "storage", "alarms"],
+  "host_permissions": ["http://127.0.0.1:8765/*"],
+  "background": {"service_worker": "background.js", "scripts": ["background.js"]},
+  "options_ui": {"page": "options.html", "open_in_tab": true},
+  "browser_specific_settings": {"gecko": {"id": "squidz-bridge@example.org", "strict_min_version": "109.0"}}
+}
