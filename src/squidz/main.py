@@ -5,12 +5,13 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from squidz.infra.storage import load
 from squidz.infra.browser import BrowserBridge
 from squidz.core.controllers import ControllerManager
-from squidz.ui.windows import MainWindow, CSS
+from squidz.ui.windows import MainWindow, CSS, load_fonts
 
 def main():
     if os.name != "nt":
         raise SystemExit("squidz requires Windows 10/11")
     app = QApplication(sys.argv)
+    load_fonts()
     app.setQuitOnLastWindowClosed(False)
     app.setStyleSheet(CSS)
     try:

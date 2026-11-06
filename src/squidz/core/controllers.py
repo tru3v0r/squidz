@@ -9,6 +9,10 @@ from squidz.infra import windows
 
 # Standard SDL gamecontroller mapping; button ids may differ for unsupported devices.
 BUTTON_MAP = {0: "a", 1: "b", 2: "x", 3: "y", 9: "l", 10: "r", 4: "minus", 6: "plus", 5: "home", 8: "right_stick"}
+POWER_PERCENTAGES = {"empty": 0, "low": 20, "medium": 60, "full": 100, "max": 100}
+
+def battery_percentage(power_level: str) -> int | None:
+    return POWER_PERCENTAGES.get(power_level.lower())
 
 class ControllerManager(QObject):
     settings_requested = Signal(str)
@@ -18,11 +22,14 @@ class ControllerManager(QObject):
     def __init__(self, settings: Settings, bridge):
         super().__init__()
         self.settings, self.bridge = settings, bridge
-        self.controllers: dict[str, pygame.joystick.Joystick] = {}
+        self.controllers: dict[str, sdl_controller.Controller] = {}
+        self.joysticks: dict[str, pygame.joystick.JoystickType] = {}
+        self.power_levels: dict[str, str] = {}
         self.pressed: dict[tuple[str, str], float] = {}
         self.long_handled: set[tuple[str, str]] = set()
         self.scroll_acc: dict[str, float] = {}
         self.last_poll = time.monotonic()
+        self.last_power_poll = 0.0
         pygame.init()
         pygame.joystick.init()
         sdl_controller.init()
@@ -36,6 +43,8 @@ class ControllerManager(QObject):
         pygame.event.pump()
         previous = set(self.controllers)
         discovered = {}
+        joysticks = {}
+        power_levels = {}
         # GUID + occurrence index disambiguates identical connected controllers.
         occurrences = {}
         for index in range(pygame.joystick.get_count()):
@@ -49,9 +58,17 @@ class ControllerManager(QObject):
             occurrences[guid] = count + 1
             key = f"{guid}#{count}"
             discovered[key] = controller
+            joysticks[key] = joy
+            power_levels[key] = joy.get_power_level().lower()
             self.settings.known_devices[key] = joy.get_name()
         self.controllers = discovered
-        if set(discovered) != previous:
+        self.joysticks = joysticks
+        self.power_levels = power_levels
+        primary_changed = False
+        if discovered and self.settings.primary_device not in discovered:
+            self.settings.primary_device = next(iter(discovered))
+            primary_changed = True
+        if set(discovered) != previous or primary_changed:
             self.devices_changed.emit()
 
     def _profile(self, key):
@@ -64,7 +81,9 @@ class ControllerManager(QObject):
         domain = self.bridge.domain(app) if app in ("firefox.exe", "brave.exe") else ""
         binding = p.resolve(button, app, domain)
         try:
-            if binding.action == "open_settings": self.settings_requested.emit(device)
+            if binding.action == "open_settings":
+                if device == self.settings.primary_device:
+                    self.settings_requested.emit(device)
             else: windows.perform(binding.action, binding.keys)
         except Exception as exc:
             self.error.emit(str(exc))
@@ -77,6 +96,12 @@ class ControllerManager(QObject):
             now = time.monotonic()
             dt = min(now - self.last_poll, .05)
             self.last_poll = now
+            if now - self.last_power_poll >= 5:
+                self.power_levels = {
+                    key: joystick.get_power_level().lower()
+                    for key, joystick in self.joysticks.items()
+                }
+                self.last_power_poll = now
             for key, joy in list(self.controllers.items()):
                 for index, button in BUTTON_MAP.items():
                     token = (key, button)
@@ -85,7 +110,8 @@ class ControllerManager(QObject):
                         self.pressed[token] = now
                     if button == "home" and down and token not in self.long_handled and now - self.pressed[token] >= .8:
                         self.long_handled.add(token)
-                        self.settings_requested.emit(key)
+                        if key == self.settings.primary_device:
+                            self.settings_requested.emit(key)
                     if not down and token in self.pressed:
                         if token not in self.long_handled:
                             self._dispatch(key, button)

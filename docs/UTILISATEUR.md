@@ -9,14 +9,19 @@
 2. Dans PowerShell à la racine : `powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1`.
 3. Lancer `dist\squidz\squidz.exe`. Le dossier `dist\squidz` est **portable** : conservez l'ensemble des fichiers à côté de l'exécutable.
 4. Le programme reste actif dans la zone de notification ; double-cliquez sur son icône pour ouvrir la configuration. Le menu « Quitter » l'arrête.
+- La police Inter est incluse. Pour afficher le titre avec Super Water, cette police doit être installée dans Windows.
 
 ## Configuration
-- Sélectionnez la manette : 🟢 connectée, 🔴 déjà enregistrée mais déconnectée.
-- Choisissez son profil dans la liste. Vous pouvez créer des profils et modifier les raccourcis.
+- Les emplacements affichent les manettes connectées et les manettes déjà connues mais déconnectées.
+- Seules les manettes connectées ou déjà connues sont affichées. Si leur nombre dépasse la largeur disponible, utilisez les flèches latérales pour parcourir la liste.
+- La couronne indique la manette principale (administratrice). Avec une seule manette connectée, elle devient principale automatiquement. Avec plusieurs manettes, cliquez sur « SET PRIMARY » sous celle qui doit devenir principale.
+- Le niveau de batterie et le profil associé sont affichés sous chaque manette connectée. Les valeurs de batterie marquées `~` sont des estimations : SDL ne fournit qu'un niveau approximatif (faible, moyen, plein), pas un pourcentage précis.
+- « Manage profiles » permet de choisir un profil à modifier ou d'en créer un. « Settings » ouvre les réglages du profil associé à la manette principale.
+- Choisissez « By default » pour qu'une manette utilise le premier profil par défaut.
 - Les sections « Général », « Programme » et « Site web » ont des priorités croissantes.
 - « Ajouter un programme » ouvre la boîte de sélection des `.exe` (y compris applications portables).
 - « Ajouter un site web » demande un domaine, par exemple `youtube.com`.
-- Le bouton HOME (central) court ouvre le menu Démarrer ; maintenu **0,8 seconde** ouvre squidz.
+- Le bouton HOME (central) court ouvre le menu Démarrer ; maintenu **0,8 seconde** par la manette principale ouvre squidz.
 
 ## Commandes initiales
 | Contrôle | Action |
@@ -32,7 +37,7 @@
 | HOME | Touche Windows |
 | HOME maintenu | Fenêtre de configuration |
 
-Le clavier visuel Windows (`osk.exe`) est déclenché lorsqu'un clic gauche atteint un contrôle éditable détectable via Windows UI Automation. **La détection des champs HTML n'est pas garantie**.
+Le clavier visuel Windows ne se lance pas automatiquement. Pour l'ouvrir manuellement, utilisez le raccourci Windows `Win` + `Ctrl` + `O`.
 
 ## Intégration YouTube
 La détection du site actif nécessite l'extension fournie dans `browser-extension/`.

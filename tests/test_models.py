@@ -12,6 +12,22 @@ def test_roundtrip():
     original = Settings.defaults()
     assert Settings.parse(original.dump()).dump() == original.dump()
 
+def test_primary_device_roundtrip():
+    original = Settings.defaults()
+    original.primary_device = "controller-guid#0"
+    assert Settings.parse(original.dump()).primary_device == original.primary_device
+
+def test_primary_device_defaults_for_existing_settings():
+    original = Settings.defaults().dump()
+    original.pop("primary_device")
+    assert Settings.parse(original).primary_device is None
+
+def test_reject_invalid_primary_device():
+    raw = Settings.defaults().dump()
+    raw["primary_device"] = 42
+    with pytest.raises(ValueError, match="Primary device"):
+        Settings.parse(raw)
+
 def test_reject_invalid_action():
     with pytest.raises(ValueError):
         Binding.parse({'action': 'shell_command'})

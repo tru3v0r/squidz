@@ -36,7 +36,10 @@ Invoke-Checked 'Run tests' { & $Python -m pytest -q }
 # Remove any stale executable so failure cannot be mistaken for success.
 if (Test-Path 'dist\squidz') { Remove-Item 'dist\squidz' -Recurse -Force }
 Invoke-Checked 'Build Windows executable' {
-    & $Python -m PyInstaller --noconfirm --clean --onedir --windowed --name squidz --collect-all pygame --hidden-import comtypes.client src\squidz\main.py
+    & $Python -m PyInstaller --noconfirm --clean --onedir --windowed --name squidz `
+        --icon src\squidz\ui\assets\squid.ico `
+        --add-data 'src\squidz\ui\assets;squidz\ui\assets' `
+        --collect-all pygame --hidden-import comtypes.client src\squidz\main.py
 }
 
 $Exe = Join-Path $ProjectRoot 'dist\squidz\squidz.exe'

@@ -1,8 +1,8 @@
 """Windows-only input injection, active process and text field detection."""
 import ctypes
 import os
-import subprocess
 from ctypes import wintypes
+from pathlib import Path
 import psutil
 
 user32 = ctypes.windll.user32 if os.name == "nt" else None
@@ -45,32 +45,16 @@ def active_process() -> str:
     except (psutil.Error, OSError):
         return ""
 
-def is_text_field() -> bool:
-    # UI Automation can identify focused editable controls in many native applications.
-    # Browser contenteditable fields vary; detection is intentionally best effort.
-    try:
-        import comtypes.client
-        uia = comtypes.client.CreateObject("UIAutomationClient.CUIAutomation")
-        element = uia.GetFocusedElement()
-        if element is None:
-            return False
-        control_type = element.CurrentControlType
-        return control_type in (50004, 50020) and bool(element.CurrentIsKeyboardFocusable)
-    except Exception:
-        return False
-
 def open_keyboard() -> None:
-    try:
-        subprocess.Popen(["osk.exe"], creationflags=0x08000000)
-    except OSError:
-        pass
+    keyboard = Path(os.environ["WINDIR"]) / "System32" / "osk.exe"
+    if not keyboard.is_file():
+        raise FileNotFoundError(f"Windows on-screen keyboard not found: {keyboard}")
+    os.startfile(str(keyboard))
 
 def perform(action: str, keys: str = "") -> None:
     if action == "none": return
     if action.endswith("_click"):
         click(action.removesuffix("_click"))
-        if action == "left_click" and is_text_field():
-            open_keyboard()
     elif action == "win": key_combo("win")
     elif action == "volume_up": key_combo("volume_up")
     elif action == "volume_down": key_combo("volume_down")

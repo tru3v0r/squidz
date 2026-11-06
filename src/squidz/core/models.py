@@ -65,6 +65,7 @@ class Settings:
     known_devices: dict[str, str] = field(default_factory=dict)
     browser_token: str = ""
     port: int = 8765
+    primary_device: str | None = None
 
     @classmethod
     def defaults(cls) -> "Settings":
@@ -84,9 +85,15 @@ class Settings:
         assignments = dict(raw.get("assignments", {}))
         if any(v not in profiles for v in assignments.values()):
             raise ValueError("An assignment references a missing profile")
-        return cls(profiles, assignments, dict(raw.get("known_devices", {})), str(raw.get("browser_token", "")), int(raw.get("port", 8765)))
+        primary_device = raw.get("primary_device")
+        if primary_device is not None and not isinstance(primary_device, str):
+            raise ValueError("Primary device must be a device key or null")
+        return cls(profiles, assignments, dict(raw.get("known_devices", {})),
+                   str(raw.get("browser_token", "")), int(raw.get("port", 8765)),
+                   primary_device)
 
     def dump(self) -> dict:
         return {"schema_version": 1, "profiles": {k: v.dump() for k, v in self.profiles.items()},
                 "assignments": self.assignments, "known_devices": self.known_devices,
-                "browser_token": self.browser_token, "port": self.port}
+                "browser_token": self.browser_token, "port": self.port,
+                "primary_device": self.primary_device}
