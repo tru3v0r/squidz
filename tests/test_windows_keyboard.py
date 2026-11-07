@@ -81,6 +81,75 @@ def test_magnetism_snaps_cursor_to_exact_target_on_path(monkeypatch):
     mouse_event.assert_not_called()
 
 
+def test_magnetism_leaves_current_target_and_snaps_to_next_target(monkeypatch):
+    def get_cursor(pointer):
+        cursor = ctypes.cast(pointer, ctypes.POINTER(wintypes.POINT)).contents
+        cursor.x, cursor.y = 20, 20
+        return True
+
+    set_cursor = Mock(return_value=True)
+    mouse_event = Mock()
+    monkeypatch.setattr(windows, "user32", SimpleNamespace(
+        GetCursorPos=Mock(side_effect=get_cursor),
+        SetCursorPos=set_cursor,
+        mouse_event=mouse_event,
+    ))
+    monkeypatch.setattr(windows, "_interaction_targets", lambda _point: [(20, 20), (40, 20)])
+
+    windows.move(20, 0, 100)
+
+    set_cursor.assert_called_once_with(40, 20)
+    mouse_event.assert_not_called()
+
+
+def test_magnetism_releases_current_target_when_no_target_is_ahead(monkeypatch):
+    def get_cursor(pointer):
+        cursor = ctypes.cast(pointer, ctypes.POINTER(wintypes.POINT)).contents
+        cursor.x, cursor.y = 20, 20
+        return True
+
+    set_cursor = Mock(return_value=True)
+    mouse_event = Mock()
+    monkeypatch.setattr(windows, "user32", SimpleNamespace(
+        GetCursorPos=Mock(side_effect=get_cursor),
+        SetCursorPos=set_cursor,
+        mouse_event=mouse_event,
+    ))
+    monkeypatch.setattr(windows, "_interaction_targets", lambda _point: [(20, 20)])
+
+    windows.move(-20, 0, 100)
+
+    set_cursor.assert_not_called()
+    mouse_event.assert_called_once_with(0x0001, -20, 0, 0, 0)
+
+
+def test_magnetism_does_not_pull_back_during_a_sustained_escape(monkeypatch):
+    position = [20, 20]
+
+    def get_cursor(pointer):
+        cursor = ctypes.cast(pointer, ctypes.POINTER(wintypes.POINT)).contents
+        cursor.x, cursor.y = position
+        return True
+
+    def move_cursor(_flags, dx, dy, _data, _extra):
+        position[0] += dx
+        position[1] += dy
+
+    mouse_event = Mock(side_effect=move_cursor)
+    monkeypatch.setattr(windows, "user32", SimpleNamespace(
+        GetCursorPos=Mock(side_effect=get_cursor),
+        SetCursorPos=Mock(return_value=True),
+        mouse_event=mouse_event,
+    ))
+    monkeypatch.setattr(windows, "_interaction_targets", lambda _point: [(20, 20)])
+
+    for _ in range(5):
+        windows.move(-1, 0, 100)
+
+    assert position == [15, 20]
+    assert mouse_event.call_count == 5
+
+
 def test_interaction_targets_include_edges_caption_buttons_and_desktop_icons(monkeypatch):
     def get_window_rect(_hwnd, pointer):
         rect = ctypes.cast(pointer, ctypes.POINTER(wintypes.RECT)).contents

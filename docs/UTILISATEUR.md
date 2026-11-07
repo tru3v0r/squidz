@@ -20,6 +20,7 @@
 - « Manage profiles » permet de choisir un profil à modifier ou d'en créer un. « Settings » ouvre les réglages du profil associé à la manette principale.
 - Dans « Sensibilité », réglez « Magnétisme » de 0 à 100 % ; à 0, il est désactivé. Il attire le pointeur vers les bords et boutons des fenêtres, ainsi que vers les icônes du bureau.
 - Dans « Settings », « Lancer au démarrage » inscrit squidz dans le démarrage de Windows. L’option « Réduit dans la barre des tâches » démarre la fenêtre minimisée ; elle n’est activable que si le démarrage automatique est coché.
+- La fenêtre « Debug » s'ouvre automatiquement avec squidz ; elle peut aussi être rouverte depuis « Settings » → « Général » → « Debug Window ». Ses cinq boutons activent séparément les sources SetWindowsHookEx, SetWinEventHook, UIA, Raw Input et ETW. Les sources sont désactivées par défaut et n'affichent que le type d'événement (pas le contenu des frappes). Activer ETW demande une autorisation UAC. Les traces ETW temporaires sont supprimées à l'arrêt de la source.
 - Choisissez « By default » pour qu'une manette utilise le premier profil par défaut.
 - Les sections « Général », « Programme » et « Site web » ont des priorités croissantes.
 - « Ajouter un programme » ouvre la boîte de sélection des `.exe` (y compris applications portables).

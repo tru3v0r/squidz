@@ -2,15 +2,17 @@
 from __future__ import annotations
 import copy
 import os
+from datetime import datetime
 from pathlib import Path
-from PySide6.QtCore import QTimer, Qt, QSize, Signal
+from PySide6.QtCore import QPropertyAnimation, QTimer, Qt, QSize, Signal
 from PySide6.QtGui import QColor, QFontDatabase, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QComboBox, QDialog, QFormLayout, QLineEdit, QDoubleSpinBox, QCheckBox,
     QScrollArea, QGroupBox, QMessageBox, QFileDialog, QInputDialog, QSystemTrayIcon, QMenu,
-    QStyle, QFrame, QGridLayout, QProgressBar, QLayout, QSlider, QTabWidget)
+    QStyle, QFrame, QGridLayout, QProgressBar, QLayout, QSlider, QTabWidget, QTextEdit)
 from squidz.core.controllers import battery_percentage
 from squidz.core.models import BUTTONS, ACTIONS, Binding, Profile
+from squidz.infra.debug_events import RawInputListener, WindowsEventSources
 from squidz.infra.storage import save
 from squidz.infra.startup import configure_startup
 
@@ -94,7 +96,7 @@ QMenu#trayMenu { color:#f5f7fb; background:#1b355b; border:1px solid #4b6c97; pa
 QMenu#trayMenu::item { padding:7px 28px 7px 12px; background:transparent; }
 QMenu#trayMenu::item:selected { color:#ffffff; background:#2765cc; }
 QMenu#trayMenu::separator { height:1px; background:#4b6c97; margin:4px 8px; }
-QPushButton#primaryAction { color:#ffffff; background:#20527b; border:2px solid #3187c7; border-radius:9px; font: 17pt 'Inter 18pt'; }
+QPushButton#primaryAction { color:#ffffff; background:#20527b; border:2px solid #3187c7; border-radius:9px; font: 13pt 'Inter 18pt'; }
 QPushButton#primaryAction:hover { background:#28618e; border-color:#54a5e0; }
 QPushButton#setPrimary { color:#ffffff; background:#20527b; border:2px solid #3187c7; border-radius:8px; font: 10pt 'Inter 18pt'; padding:5px 10px; }
 QPushButton#setPrimary:hover { background:#28618e; }
@@ -114,6 +116,9 @@ QScrollArea#profileScroll QWidget { background:transparent; }
 QTabWidget::pane { background:#223d68; border:1px solid #4d6c95; border-radius:8px; }
 QTabBar::tab { color:#b9d5ff; background:#1b355b; border:1px solid #4b6c97; border-bottom:0; border-top-left-radius:7px; border-top-right-radius:7px; padding:8px 18px; }
 QTabBar::tab:selected { color:#ffffff; background:#20527b; border-color:#3187c7; }
+QLabel#debugHeading { color:#3989cf; font: 30pt 'Super Water'; }
+QTextEdit#debugEventList { color:#f5f7fb; background:#1b355b; border:1px solid #20385c; border-radius:10px; padding:10px; font: 10pt 'Inter 18pt'; }
+QPushButton:checked { background:#28618e; border-color:#54a5e0; }
 """
 
 class ProfileDialog(QDialog):
@@ -313,10 +318,153 @@ class ProfileCreationDialog(QDialog):
             self.reject()
 
 
+class DebugWindow(QDialog):
+    SOURCES = (
+        ("set_windows_hook", "SetWindowsHookEx"),
+        ("win_event_hook", "SetWinEventHook"),
+        ("uia", "UIA"),
+        ("raw_input", "Raw Input"),
+        ("etw", "ETW"),
+    )
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Squidz — Debug")
+        self.setObjectName("debugWindow")
+        self.setWindowIcon(QIcon(str(APP_ICON)))
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
+        self.resize(926, 720)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(16, 8, 16, 16)
+        root.setSpacing(12)
+        header = DraggableHeader()
+        header.setFixedHeight(62)
+        header_layout = QGridLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setColumnStretch(0, 1)
+        header_layout.setColumnStretch(2, 1)
+        title = QWidget()
+        title_layout = QHBoxLayout(title)
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.setSpacing(7)
+        icon = QLabel()
+        icon.setPixmap(QPixmap(str(APP_ICON)).scaled(
+            32, 32, Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation))
+        title_layout.addWidget(icon)
+        heading = QLabel("DEBUG")
+        heading.setObjectName("debugHeading")
+        title_layout.addWidget(heading)
+        header_layout.addWidget(title, 0, 1, Qt.AlignmentFlag.AlignCenter)
+
+        controls = QHBoxLayout()
+        controls.setSpacing(10)
+        minimize = QPushButton("−")
+        minimize.setObjectName("windowControl")
+        minimize.setFixedSize(34, 30)
+        minimize.clicked.connect(self.showMinimized)
+        close = QPushButton("×")
+        close.setObjectName("windowControl")
+        close.setFixedSize(34, 30)
+        close.clicked.connect(self.close)
+        controls.addWidget(minimize)
+        controls.addWidget(close)
+        header_layout.addLayout(
+            controls, 0, 2, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
+        root.addWidget(header)
+
+        self.event_list = QTextEdit()
+        self.event_list.setObjectName("debugEventList")
+        self.event_list.setReadOnly(True)
+        self.event_list.document().setMaximumBlockCount(2000)
+        root.addWidget(self.event_list, 1)
+
+        self.sources = WindowsEventSources(self)
+        self.sources.event_received.connect(self.append_event)
+        self.sources.source_error.connect(self._source_error)
+        self.raw_input = RawInputListener(self.append_event)
+        self._native_filter_installed = False
+
+        buttons = QHBoxLayout()
+        buttons.setContentsMargins(52, 0, 52, 0)
+        buttons.setSpacing(18)
+        self.source_buttons: dict[str, QPushButton] = {}
+        for source, label in self.SOURCES:
+            button = QPushButton(label)
+            button.setObjectName(f"debugSource_{source}")
+            button.setCheckable(True)
+            button.setMinimumHeight(44)
+            button.toggled.connect(
+                lambda enabled, selected=source: self.set_source_enabled(selected, enabled))
+            self.source_buttons[source] = button
+            buttons.addWidget(button, 1)
+        root.addLayout(buttons)
+        self._install_native_filter()
+
+    def _install_native_filter(self):
+        app = QApplication.instance()
+        if app is not None and not self._native_filter_installed:
+            app.installNativeEventFilter(self.raw_input)
+            self._native_filter_installed = True
+
+    def set_source_enabled(self, source: str, enabled: bool):
+        try:
+            if source == "raw_input":
+                self._install_native_filter()
+                self.raw_input.set_enabled(enabled, int(self.winId()) if enabled else None)
+            else:
+                self.sources.set_enabled(source, enabled)
+        except Exception as exc:
+            button = self.source_buttons[source]
+            button.blockSignals(True)
+            button.setChecked(False)
+            button.blockSignals(False)
+            self._source_error(source, str(exc))
+
+    def append_event(self, source: str, event: str):
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        source_label = dict(self.SOURCES).get(source, source)
+        self.event_list.append(f"{timestamp}  [{source_label}] {event}")
+
+    def _source_error(self, source: str, message: str):
+        button = self.source_buttons.get(source)
+        if button is not None and button.isChecked():
+            button.blockSignals(True)
+            button.setChecked(False)
+            button.blockSignals(False)
+            if source != "raw_input":
+                self.sources.set_enabled(source, False)
+        self.append_event(source, f"ERROR: {message}")
+
+    def showEvent(self, event):
+        self._install_native_filter()
+        super().showEvent(event)
+
+    def closeEvent(self, event):
+        self.sources.stop_all()
+        if self.raw_input.enabled:
+            try:
+                self.raw_input.set_enabled(False)
+            except OSError as exc:
+                self._source_error("raw_input", str(exc))
+        for button in self.source_buttons.values():
+            button.blockSignals(True)
+            button.setChecked(False)
+            button.blockSignals(False)
+        app = QApplication.instance()
+        if app is not None and self._native_filter_installed:
+            app.removeNativeEventFilter(self.raw_input)
+            self._native_filter_installed = False
+        super().closeEvent(event)
+
+
 class SettingsDialog(QDialog):
-    def __init__(self, settings, parent=None):
+    def __init__(self, settings, parent=None, debug_window: DebugWindow | None = None):
         super().__init__(parent)
         self.settings = settings
+        self.debug_window = debug_window
         self.profiles = copy.deepcopy(settings.profiles)
         self.current_profile_name: str | None = None
         self.profile_editor: ProfileEditor | None = None
@@ -343,6 +491,10 @@ class SettingsDialog(QDialog):
         startup_layout.addWidget(self.startup_checkbox)
         startup_layout.addWidget(self.minimized_checkbox)
         general_layout.addWidget(startup_group)
+        self.debug_button = QPushButton("Debug Window")
+        self.debug_button.setObjectName("openDebugWindow")
+        self.debug_button.clicked.connect(self.open_debug_window)
+        general_layout.addWidget(self.debug_button)
         general_layout.addStretch()
         self.tabs.addTab(general_tab, "Général")
 
@@ -376,6 +528,13 @@ class SettingsDialog(QDialog):
         buttons.addWidget(self.close_button)
         root.addLayout(buttons)
         self.save_button.clicked.connect(self._accept_settings)
+
+    def open_debug_window(self):
+        if self.debug_window is None:
+            self.debug_window = DebugWindow()
+        self.debug_window.showNormal()
+        self.debug_window.raise_()
+        self.debug_window.activateWindow()
 
     def _accept_settings(self):
         if self.current_profile_name is not None and self.profile_editor is not None:
@@ -545,6 +704,12 @@ class ControllerSlot(QWidget):
         self.battery_bar = QProgressBar()
         self.battery_bar.setTextVisible(False)
         self.battery_bar.setFixedSize(112, 7)
+        self.battery_bar.valueChanged.connect(self._update_battery_color)
+        self._connected = False
+        self._battery_known = False
+        self._battery_target: int | None = None
+        self.battery_animation = QPropertyAnimation(self.battery_bar, b"value", self)
+        self.battery_animation.setDuration(1400)
         layout.addWidget(self.battery_bar, 0, Qt.AlignmentFlag.AlignHCenter)
         layout.addSpacing(9)
 
@@ -565,6 +730,8 @@ class ControllerSlot(QWidget):
     def configure(self, key: str | None, name: str, connected: bool,
                   power_level: str, profiles: list[str], assigned: str | None,
                   primary: bool, connected_count: int):
+        newly_connected = connected and not self._connected
+        self._connected = connected
         self.device_key = key or ""
         self.artwork.set_state(connected, primary)
         self.name.setText(name)
@@ -577,7 +744,7 @@ class ControllerSlot(QWidget):
         self.profile_picker.setVisible(connected)
         self.set_primary.setVisible(connected and connected_count > 1 and not primary)
         if connected:
-            self.update_battery(power_level)
+            self.update_battery(power_level, animate=newly_connected)
             self.profile_picker.blockSignals(True)
             self.profile_picker.clear()
             self.profile_picker.addItem("By default", "")
@@ -586,19 +753,44 @@ class ControllerSlot(QWidget):
             index = self.profile_picker.findData(assigned or "")
             self.profile_picker.setCurrentIndex(max(index, 0))
             self.profile_picker.blockSignals(False)
+        else:
+            self.battery_animation.stop()
+            self._battery_target = None
+            self._battery_known = False
+            self.battery_bar.setValue(0)
 
-    def update_battery(self, power_level: str):
+    def update_battery(self, power_level: str, animate: bool = False):
         if power_level == "wired":
-            label, percentage, color = "Wired", 100, "#00c96b"
+            label, percentage = "Wired", 100
         else:
             percentage = battery_percentage(power_level)
             if percentage is None:
-                label, color = "—", "#7587a3"
+                label = "—"
             else:
                 label = f"{percentage}%" if power_level in ("empty", "full", "max") else f"~{percentage}%"
-                color = "#00c96b" if percentage >= 80 else "#ffc21c" if percentage >= 50 else "#f26945"
         self.battery.setText(label)
-        self.battery_bar.setValue(percentage or 0)
+        target = percentage or 0
+        self._battery_known = percentage is not None
+        if animate:
+            self.battery_animation.stop()
+            self._battery_target = target
+            self.battery_bar.setValue(0)
+            self.battery_animation.setStartValue(0)
+            self.battery_animation.setEndValue(target)
+            self.battery_animation.start()
+        elif self.battery_animation.state() != QPropertyAnimation.State.Running:
+            self._battery_target = target
+            self.battery_bar.setValue(target)
+        elif target != self._battery_target:
+            self.battery_animation.stop()
+            self._battery_target = target
+            self.battery_bar.setValue(target)
+
+    def _update_battery_color(self, value: int):
+        if not self._battery_known:
+            color = "#7587a3"
+        else:
+            color = "#00c96b" if value >= 80 else "#ffc21c" if value >= 50 else "#f26945"
         self.battery_bar.setStyleSheet(
             f"QProgressBar {{ background:#17345e; border:0; border-radius:3px; }}"
             f"QProgressBar::chunk {{ background:{color}; border-radius:3px; }}")
@@ -624,8 +816,9 @@ class MainWindow(QMainWindow):
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         self.setWindowTitle("squidz")
         self.setWindowIcon(QIcon(str(APP_ICON)))
+        self.debug_window = DebugWindow()
         self.setMinimumSize(960, 550)
-        self.resize(1100, 605)
+        self.resize(1100, 550)
         surface = QWidget()
         surface.setObjectName("mainSurface")
         self.setCentralWidget(surface)
@@ -669,7 +862,7 @@ class MainWindow(QMainWindow):
 
         body = QWidget()
         body_layout = QHBoxLayout(body)
-        body_layout.setContentsMargins(10, 20, 10, 8)
+        body_layout.setContentsMargins(10, 16, 10, 4)
         body_layout.setSpacing(0)
 
         self.previous_controllers = self._controller_nav_button("‹")
@@ -713,6 +906,7 @@ class MainWindow(QMainWindow):
         root.addLayout(separator_layout)
 
         footer = QWidget()
+        footer.setObjectName("bottomButtonBar")
         footer.setFixedHeight(118)
         footer_layout = QHBoxLayout(footer)
         footer_layout.setContentsMargins(0, 27, 0, 27)
@@ -897,7 +1091,7 @@ class MainWindow(QMainWindow):
             save(self.settings)
 
     def open_settings(self):
-        dialog = SettingsDialog(self.settings, self)
+        dialog = SettingsDialog(self.settings, self, self.debug_window)
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         self.settings.profiles = dialog.profiles
@@ -908,6 +1102,11 @@ class MainWindow(QMainWindow):
             configure_startup(self.settings)
         except OSError as exc:
             QMessageBox.warning(self, "squidz — Démarrage", str(exc))
+
+    def show_debug_window(self):
+        self.debug_window.showNormal()
+        self.debug_window.raise_()
+        self.debug_window.activateWindow()
 
     def new_profile(self):
         dialog = ProfileCreationDialog(list(self.settings.profiles), self)

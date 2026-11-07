@@ -7,13 +7,14 @@ from types import SimpleNamespace
 from PySide6.QtCore import QPoint
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QDialog, QMessageBox, QScrollArea, QSlider,
+    QApplication, QCheckBox, QComboBox, QDialog, QMessageBox, QPushButton, QScrollArea,
+    QSlider, QWidget,
 )
 
 from squidz.core.models import Settings
 from squidz.ui.windows import (
-    CSS, ControllerSlot, MainWindow, ProfileCreationDialog, ProfileDialog, SettingsDialog,
-    load_fonts,
+    CSS, ControllerSlot, DebugWindow, MainWindow, ProfileCreationDialog, ProfileDialog,
+    SettingsDialog, load_fonts,
 )
 
 
@@ -37,6 +38,34 @@ def test_controller_slot_marks_primary_and_requests_transfer():
 
     assert slot.artwork.primary is True
     assert slot.set_primary.isHidden()
+
+
+def test_controller_battery_animates_from_empty_through_percentage_colors():
+    app = QApplication.instance() or QApplication([])
+    slot = ControllerSlot()
+
+    slot.configure("guid#1", "Controller", True, "full", ["Default"], None, True, 1)
+
+    assert slot.battery_bar.value() == 0
+    assert slot.battery_animation.state().name == "Running"
+    slot.battery_animation.setCurrentTime(slot.battery_animation.duration() // 2)
+    assert slot.battery_bar.value() == 50
+    assert "#ffc21c" in slot.battery_bar.styleSheet()
+    slot.battery_animation.setCurrentTime(slot.battery_animation.duration())
+    assert slot.battery_bar.value() == 100
+    assert "#00c96b" in slot.battery_bar.styleSheet()
+
+
+def test_controller_battery_only_animates_when_connection_starts():
+    app = QApplication.instance() or QApplication([])
+    slot = ControllerSlot()
+
+    slot.configure("guid#1", "Controller", True, "low", ["Default"], None, True, 1)
+    slot.battery_animation.setCurrentTime(slot.battery_animation.duration())
+    slot.configure("guid#1", "Controller", True, "medium", ["Default"], None, True, 1)
+
+    assert slot.battery_bar.value() == 60
+    assert slot.battery_animation.state().name == "Stopped"
 
 
 def test_inter_font_is_loaded_from_assets():
@@ -128,6 +157,41 @@ def test_settings_dialog_separates_general_and_profile_options():
     startup.setChecked(False)
     assert not minimized.isEnabled()
     assert dialog.profile_editor.findChild(QCheckBox, "startupEnabled") is None
+
+
+def test_debug_window_has_five_independent_opt_in_event_sources(monkeypatch):
+    app = QApplication.instance() or QApplication([])
+    app.setStyleSheet(CSS)
+    window = DebugWindow()
+    started = []
+    monkeypatch.setattr(
+        window.sources, "set_enabled",
+        lambda source, enabled: started.append((source, enabled)))
+
+    assert [window.source_buttons[source].text()
+            for source, _ in window.SOURCES] == [
+                "SetWindowsHookEx", "SetWinEventHook", "UIA", "Raw Input", "ETW"]
+    assert all(button.isCheckable() for button in window.source_buttons.values())
+    window.source_buttons["set_windows_hook"].click()
+    window.source_buttons["set_windows_hook"].click()
+    assert started == [
+        ("set_windows_hook", True),
+        ("set_windows_hook", False),
+    ]
+    window.append_event("uia", "focus changed")
+    assert "[UIA] focus changed" in window.event_list.toPlainText()
+    window.close()
+
+
+def test_settings_general_has_debug_window_button():
+    app = QApplication.instance() or QApplication([])
+    dialog = SettingsDialog(Settings.defaults())
+
+    assert dialog.debug_button.text() == "Debug Window"
+    assert dialog.findChild(QPushButton, "openDebugWindow") is dialog.debug_button
+    dialog.debug_button.click()
+    assert dialog.debug_window.isVisible()
+    dialog.debug_window.close()
 
 
 def test_settings_dialog_edits_each_profile_and_styles_profile_selector():
@@ -240,6 +304,8 @@ def test_main_window_lists_known_controllers_and_scrolls_overflow(monkeypatch):
     window.show()
     app.processEvents()
 
+    assert window.height() == 550
+    assert "font: 13pt" in CSS
     assert len(window.slots) == len(settings.known_devices)
     assert [slot.name.text() for slot in window.slots] == list(settings.known_devices.values())
     assert window.slots[0].artwork.connected
@@ -253,6 +319,12 @@ def test_main_window_lists_known_controllers_and_scrolls_overflow(monkeypatch):
     assert window.controller_scroll.horizontalScrollBar().maximum() > 0
     assert window.previous_controllers[1].isHidden()
     assert not window.next_controllers[1].isHidden()
+    footer = window.findChild(QWidget, "bottomButtonBar")
+    assert footer is not None
+    controller_bottom = window.slots[0].mapTo(
+        window, QPoint(0, window.slots[0].height())).y()
+    footer_top = footer.mapTo(window, QPoint(0, 0)).y()
+    assert footer_top - controller_bottom <= 65
     assert window.slots[0].profile_picker.geometry().top() - window.slots[0].battery_bar.geometry().bottom() >= 9
 
     window.next_controllers[1].click()
@@ -272,9 +344,12 @@ def test_main_window_lists_known_controllers_and_scrolls_overflow(monkeypatch):
     assert window.controller_scroll.horizontalScrollBar().value() == 0
     assert window.previous_controllers[1].isHidden()
 
+    window.show_debug_window()
+    assert window.debug_window.isVisible()
     window.tray.hide()
     window._battery_timer.stop()
     window.close()
+    window.debug_window.close()
 
 
 def test_disconnected_controller_can_be_forgotten(monkeypatch):
@@ -319,3 +394,4 @@ def test_disconnected_controller_can_be_forgotten(monkeypatch):
     window.tray.hide()
     window._battery_timer.stop()
     window.close()
+    window.debug_window.close()

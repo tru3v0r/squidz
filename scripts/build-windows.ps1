@@ -32,6 +32,9 @@ if (Test-Path $Python) {
 
 Invoke-Checked 'Install dependencies' { & $Python -m pip install --only-binary pygame -e '.[build,test]' }
 Invoke-Checked 'Run tests' { & $Python -m pytest -q }
+Invoke-Checked 'Prepare UI Automation interfaces' {
+    & $Python -c "from comtypes.client import GetModule; GetModule('UIAutomationCore.dll')"
+}
 
 # Remove any stale executable so failure cannot be mistaken for success.
 if (Test-Path 'dist\squidz') { Remove-Item 'dist\squidz' -Recurse -Force }
@@ -39,7 +42,8 @@ Invoke-Checked 'Build Windows executable' {
     & $Python -m PyInstaller --noconfirm --clean --onedir --windowed --name squidz `
         --icon src\squidz\ui\assets\squid.ico `
         --add-data 'src\squidz\ui\assets;squidz\ui\assets' `
-        --collect-all pygame --hidden-import comtypes.client src\squidz\main.py
+        --collect-all pygame --hidden-import comtypes.client `
+        --hidden-import comtypes.gen.UIAutomationClient src\squidz\main.py
 }
 
 $Exe = Join-Path $ProjectRoot 'dist\squidz\squidz.exe'

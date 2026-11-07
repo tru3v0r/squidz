@@ -5,10 +5,13 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from squidz.infra.storage import load
 from squidz.infra.startup import configure_startup
 from squidz.infra.browser import BrowserBridge
+from squidz.infra.etw_helper import main as etw_helper_main
 from squidz.core.controllers import ControllerManager
 from squidz.ui.windows import MainWindow, CSS, load_fonts
 
 def main():
+    if sys.argv[1:2] == ["--squidz-etw-helper"]:
+        return etw_helper_main(sys.argv[2:])
     if os.name != "nt":
         raise SystemExit("squidz requires Windows 10/11")
     app = QApplication(sys.argv)
@@ -32,9 +35,12 @@ def main():
     manager.error.connect(lambda message: window.statusBar().showMessage(message, 5000))
     if "--minimized" in sys.argv[1:]:
         window.showMinimized()
+        window.debug_window.showMinimized()
     else:
         window.show()
+        window.show_debug_window()
     app.aboutToQuit.connect(bridge.stop)
+    app.aboutToQuit.connect(window.debug_window.close)
     return app.exec()
 
 if __name__ == "__main__":

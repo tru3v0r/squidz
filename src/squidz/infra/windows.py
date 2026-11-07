@@ -88,6 +88,8 @@ def _magnet_snap_target(
         if segment_length_squared:
             progress = ((target_x - start_x) * segment_x
                         + (target_y - start_y) * segment_y) / segment_length_squared
+            if progress <= 0:
+                continue
             progress = max(0.0, min(1.0, progress))
             nearest_x = start_x + progress * segment_x
             nearest_y = start_y + progress * segment_y
@@ -249,6 +251,15 @@ def move(dx: float, dy: float, magnet_strength: float = 0) -> None:
         position = (cursor.x, cursor.y)
         targets = _interaction_targets(
             (round(cursor.x + dx), round(cursor.y + dy)))
+        if dx or dy:
+            moving_targets = []
+            for target in targets:
+                alignment = ((target[0] - cursor.x) * dx
+                             + (target[1] - cursor.y) * dy)
+                if alignment > 0 or (alignment == 0
+                                     and math.dist(position, target) > 2):
+                    moving_targets.append(target)
+            targets = moving_targets
         snap = _magnet_snap_target(dx, dy, position, targets, magnet_strength)
         if snap is not None:
             user32.SetCursorPos.argtypes = (ctypes.c_int, ctypes.c_int)
