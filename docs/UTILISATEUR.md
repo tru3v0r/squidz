@@ -13,10 +13,13 @@
 
 ## Configuration
 - Les emplacements affichent les manettes connectées et les manettes déjà connues mais déconnectées.
+- Le bouton « Oublier » sous une manette déconnectée supprime son nom mémorisé et son attribution de profil ; une confirmation est demandée.
 - Seules les manettes connectées ou déjà connues sont affichées. Si leur nombre dépasse la largeur disponible, utilisez les flèches latérales pour parcourir la liste.
 - La couronne indique la manette principale (administratrice). Avec une seule manette connectée, elle devient principale automatiquement. Avec plusieurs manettes, cliquez sur « SET PRIMARY » sous celle qui doit devenir principale.
 - Le niveau de batterie et le profil associé sont affichés sous chaque manette connectée. Les valeurs de batterie marquées `~` sont des estimations : SDL ne fournit qu'un niveau approximatif (faible, moyen, plein), pas un pourcentage précis.
 - « Manage profiles » permet de choisir un profil à modifier ou d'en créer un. « Settings » ouvre les réglages du profil associé à la manette principale.
+- Dans « Sensibilité », réglez « Magnétisme » de 0 à 100 % ; à 0, il est désactivé. Il attire le pointeur vers les bords et boutons des fenêtres, ainsi que vers les icônes du bureau.
+- Dans « Settings », « Lancer au démarrage » inscrit squidz dans le démarrage de Windows. L’option « Réduit dans la barre des tâches » démarre la fenêtre minimisée ; elle n’est activable que si le démarrage automatique est coché.
 - Choisissez « By default » pour qu'une manette utilise le premier profil par défaut.
 - Les sections « Général », « Programme » et « Site web » ont des priorités croissantes.
 - « Ajouter un programme » ouvre la boîte de sélection des `.exe` (y compris applications portables).
@@ -27,12 +30,12 @@
 | Contrôle | Action |
 |---|---|
 | Stick gauche | Déplacer le pointeur |
-| A / B | Clic gauche / droit |
+| A / B | Clic gauche / droit (maintenir A pour déplacer une fenêtre ou faire glisser) |
 | Stick droit vertical | Défilement |
 | Clic stick droit | Clic molette |
 | L / R | Ctrl+Tab / Tab (général) |
 | L / R dans Firefox ou Brave | Onglet précédent / suivant |
-| X / Y sur YouTube dans Firefox ou Brave | Lecture/pause (`K`) / plein écran (`F`) |
+| B / X / Y sur YouTube dans Firefox ou Brave | Clic droit / lecture-pause (Espace) / plein écran (`F`) |
 | - / + | Volume - / + |
 | HOME | Touche Windows |
 | HOME maintenu | Fenêtre de configuration |
@@ -47,4 +50,4 @@ La détection du site actif nécessite l'extension fournie dans `browser-extensi
 4. Dans les options de l'extension, coller le jeton et enregistrer.
 5. Conserver squidz en cours d'exécution. L'extension n'envoie l'URL active qu'au service local `127.0.0.1:8765`.
 
-**Limites connues** : la détection du domaine suit le dernier onglet actif signalé par le navigateur ; plusieurs fenêtres/profils simultanés du même navigateur peuvent provoquer un contexte erroné. Les raccourcis `K` et `F` de YouTube supposent que la page traite les raccourcis (et qu'aucun champ de saisie ne capte les touches). Le jeu de boutons et les axes dépendent du mapping SDL ; une manette non reconnue comme GameController nécessite un mapping SDL adapté. Les applications administrateur peuvent ignorer les entrées injectées par une application non élevée.
+**Limites connues** : la détection du domaine suit le dernier onglet actif signalé par le navigateur ; plusieurs fenêtres/profils simultanés du même navigateur peuvent provoquer un contexte erroné. Les raccourcis Espace, `F` et `C` de YouTube supposent que la page traite les raccourcis (et qu'aucun champ de saisie ne capte les touches). Le jeu de boutons et les axes dépendent du mapping SDL ; une manette non reconnue comme GameController nécessite un mapping SDL adapté. Les applications administrateur peuvent ignorer les entrées injectées par une application non élevée.

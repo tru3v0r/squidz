@@ -4,7 +4,7 @@ from dataclasses import dataclass, field, asdict
 from typing import Any
 
 BUTTONS = ("a", "b", "x", "y", "l", "r", "minus", "plus", "home", "right_stick")
-ACTIONS = ("none", "left_click", "right_click", "middle_click", "win", "volume_up", "volume_down", "previous", "next", "tab_previous", "tab_next", "play_pause", "fullscreen", "key_combo", "open_settings")
+ACTIONS = ("none", "left_click", "right_click", "middle_click", "win", "volume_up", "volume_down", "previous", "next", "tab_previous", "tab_next", "play_pause", "fullscreen", "subtitles", "key_combo", "open_settings")
 DEFAULT_BINDINGS = {"a": "left_click", "b": "right_click", "l": "previous", "r": "next", "minus": "volume_down", "plus": "volume_up", "home": "win", "right_stick": "middle_click"}
 BROWSER_BINDINGS = {"l": "tab_previous", "r": "tab_next"}
 YOUTUBE_BINDINGS = {"x": "play_pause", "y": "fullscreen"}
@@ -31,6 +31,7 @@ class Profile:
     mouse_speed: float = 16.0
     scroll_speed: float = 3.0
     deadzone: float = 0.18
+    magnet_strength: float = 50.0
 
     @classmethod
     def parse(cls, name: str, raw: dict) -> "Profile":
@@ -44,7 +45,7 @@ class Profile:
                    {k.lower(): parse_map(v) for k, v in raw.get("apps", {}).items()},
                    {k.lower(): parse_map(v) for k, v in raw.get("sites", {}).items()},
                    float(raw.get("mouse_speed", 16)), float(raw.get("scroll_speed", 3)),
-                   float(raw.get("deadzone", .18)))
+                   float(raw.get("deadzone", .18)), float(raw.get("magnet_strength", 50)))
 
     def resolve(self, button: str, app: str = "", domain: str = "") -> Binding:
         result = self.global_bindings.get(button, Binding())
@@ -66,6 +67,8 @@ class Settings:
     browser_token: str = ""
     port: int = 8765
     primary_device: str | None = None
+    startup_enabled: bool = False
+    start_minimized: bool = False
 
     @classmethod
     def defaults(cls) -> "Settings":
@@ -82,18 +85,28 @@ class Settings:
         profiles = {name: Profile.parse(name, p) for name, p in raw["profiles"].items()}
         if not profiles:
             raise ValueError("At least one profile required")
+        for profile in profiles.values():
+            youtube = profile.sites.get("youtube.com")
+            if youtube and youtube.get("b", Binding()).action == "subtitles":
+                youtube.pop("b")
         assignments = dict(raw.get("assignments", {}))
         if any(v not in profiles for v in assignments.values()):
             raise ValueError("An assignment references a missing profile")
         primary_device = raw.get("primary_device")
         if primary_device is not None and not isinstance(primary_device, str):
             raise ValueError("Primary device must be a device key or null")
+        startup_enabled = raw.get("startup_enabled", False)
+        start_minimized = raw.get("start_minimized", False)
+        if not isinstance(startup_enabled, bool) or not isinstance(start_minimized, bool):
+            raise ValueError("Startup options must be booleans")
         return cls(profiles, assignments, dict(raw.get("known_devices", {})),
                    str(raw.get("browser_token", "")), int(raw.get("port", 8765)),
-                   primary_device)
+                   primary_device, startup_enabled, start_minimized)
 
     def dump(self) -> dict:
         return {"schema_version": 1, "profiles": {k: v.dump() for k, v in self.profiles.items()},
                 "assignments": self.assignments, "known_devices": self.known_devices,
                 "browser_token": self.browser_token, "port": self.port,
-                "primary_device": self.primary_device}
+                "primary_device": self.primary_device,
+                "startup_enabled": self.startup_enabled,
+                "start_minimized": self.start_minimized}

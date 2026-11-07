@@ -6,8 +6,9 @@
       "global_bindings": {"a": {"action":"left_click"}, "b": {"action":"right_click"}, "l": {"action":"previous"}, "r": {"action":"next"}, "minus": {"action":"volume_down"}, "plus": {"action":"volume_up"}, "home": {"action":"win"}, "right_stick": {"action":"middle_click"}},
       "apps": {"firefox.exe":{"l":{"action":"tab_previous"},"r":{"action":"tab_next"}},"brave.exe":{"l":{"action":"tab_previous"},"r":{"action":"tab_next"}}},
       "sites": {"youtube.com":{"x":{"action":"play_pause"},"y":{"action":"fullscreen"}}},
-      "mouse_speed": 16, "scroll_speed": 3, "deadzone": 0.18
+      "mouse_speed": 16, "scroll_speed": 3, "deadzone": 0.18, "magnet_strength": 50
     }
   },
-  "assignments": {}, "known_devices": {}, "browser_token": "GENERATED_AT_FIRST_LAUNCH", "port": 8765
+  "assignments": {}, "known_devices": {}, "browser_token": "GENERATED_AT_FIRST_LAUNCH", "port": 8765,
+  "startup_enabled": false, "start_minimized": false
 }

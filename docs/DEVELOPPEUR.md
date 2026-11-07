@@ -3,9 +3,10 @@
 ## Architecture
 - `core/models.py` : modèle typé, validation, priorité global → application → domaine le plus spécifique.
 - `core/controllers.py` : découverte SDL GameController, lecture à 60 Hz, détection d'appui long, déplacement et défilement.
-- `infra/windows.py` : couche Windows (injection clavier/souris, processus actif, UI Automation).
+- `infra/windows.py` : couche Windows (injection clavier/souris, magnétisme des zones d'interaction, processus actif).
 - `infra/browser.py` : serveur HTTP loopback authentifié par jeton, état URL avec expiration de 5 s.
 - `infra/storage.py` : persistance JSON atomique, `%APPDATA%\squidz\settings.json`.
+- `infra/startup.py` : inscription/suppression de l’application dans la clé de démarrage Windows de l’utilisateur.
 - `ui/windows.py` : fenêtres Qt, édition de profils, sélecteurs de manettes, icône de notification.
 - `main.py` : composition des composants et cycle de vie.
 - `browser-extension/` : extension MV3 Brave / Firefox (chargement temporaire sur Firefox).

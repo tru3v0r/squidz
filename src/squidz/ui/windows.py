@@ -6,12 +6,13 @@ from pathlib import Path
 from PySide6.QtCore import QTimer, Qt, QSize, Signal
 from PySide6.QtGui import QColor, QFontDatabase, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QPushButton, QComboBox, QDialog, QFormLayout, QLineEdit, QDoubleSpinBox,
+    QLabel, QPushButton, QComboBox, QDialog, QFormLayout, QLineEdit, QDoubleSpinBox, QCheckBox,
     QScrollArea, QGroupBox, QMessageBox, QFileDialog, QInputDialog, QSystemTrayIcon, QMenu,
-    QStyle, QFrame, QGridLayout, QProgressBar, QLayout)
+    QStyle, QFrame, QGridLayout, QProgressBar, QLayout, QSlider, QTabWidget)
 from squidz.core.controllers import battery_percentage
 from squidz.core.models import BUTTONS, ACTIONS, Binding, Profile
 from squidz.infra.storage import save
+from squidz.infra.startup import configure_startup
 
 ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 APP_ICON = ASSETS_DIR / "squid.png"
@@ -82,7 +83,17 @@ QPushButton#windowControl:hover { color:#ffffff; }
 QPushButton#profilePicker { color:#ffffff; background:#20527b; border:1.5px solid #3187c7; border-radius:8px; padding:5px 12px; text-align:left; min-height:22px; }
 QPushButton#profilePicker:hover { background:#28618e; }
 QComboBox#profilePicker { color:#ffffff; background:#20527b; border:1.5px solid #3187c7; border-radius:8px; padding:5px 10px; min-height:22px; }
-QComboBox#profilePicker QAbstractItemView { color:#ffffff; background:#20527b; selection-background-color:#3187c7; }
+QComboBox#profilePicker QAbstractItemView { color:#f5f7fb; background:#1b355b; border:1px solid #4b6c97; selection-color:#ffffff; selection-background-color:#2765cc; outline:0; }
+QComboBox#profilePicker QAbstractItemView::item { min-height:28px; padding:4px 10px; }
+QComboBox#profilePicker QAbstractItemView::item:hover { background:#28618e; }
+QComboBox#settingsProfilePicker { color:#ffffff; background:#20527b; border:1.5px solid #3187c7; border-radius:8px; padding:5px 10px; min-height:22px; }
+QComboBox#settingsProfilePicker QAbstractItemView { color:#f5f7fb; background:#1b355b; border:1px solid #4b6c97; selection-color:#ffffff; selection-background-color:#2765cc; outline:0; }
+QComboBox#settingsProfilePicker QAbstractItemView::item { min-height:28px; padding:4px 10px; }
+QComboBox#settingsProfilePicker QAbstractItemView::item:hover { background:#28618e; }
+QMenu#trayMenu { color:#f5f7fb; background:#1b355b; border:1px solid #4b6c97; padding:5px; }
+QMenu#trayMenu::item { padding:7px 28px 7px 12px; background:transparent; }
+QMenu#trayMenu::item:selected { color:#ffffff; background:#2765cc; }
+QMenu#trayMenu::separator { height:1px; background:#4b6c97; margin:4px 8px; }
 QPushButton#primaryAction { color:#ffffff; background:#20527b; border:2px solid #3187c7; border-radius:9px; font: 17pt 'Inter 18pt'; }
 QPushButton#primaryAction:hover { background:#28618e; border-color:#54a5e0; }
 QPushButton#setPrimary { color:#ffffff; background:#20527b; border:2px solid #3187c7; border-radius:8px; font: 10pt 'Inter 18pt'; padding:5px 10px; }
@@ -96,21 +107,48 @@ QPushButton:disabled { background:#2b4265; color:#7186a4; }
 QComboBox, QLineEdit, QDoubleSpinBox { background:#1b355b; border:1px solid #4b6c97; border-radius:7px; padding:7px; min-height:20px; }
 QComboBox QAbstractItemView { background:#1b355b; color:#fff; selection-background-color:#2765cc; }
 QScrollArea { border:0; }
+QScrollArea#controllerScroll { background:transparent; }
+QScrollArea#controllerScroll QWidget { background:transparent; }
+QScrollArea#profileScroll { background:transparent; }
+QScrollArea#profileScroll QWidget { background:transparent; }
+QTabWidget::pane { background:#223d68; border:1px solid #4d6c95; border-radius:8px; }
+QTabBar::tab { color:#b9d5ff; background:#1b355b; border:1px solid #4b6c97; border-bottom:0; border-top-left-radius:7px; border-top-right-radius:7px; padding:8px 18px; }
+QTabBar::tab:selected { color:#ffffff; background:#20527b; border-color:#3187c7; }
 """
 
 class ProfileDialog(QDialog):
     def __init__(self, profile: Profile, parent=None):
         super().__init__(parent)
-        self.profile = copy.deepcopy(profile)
         self.setWindowTitle("Modifier le profil — " + profile.name)
         self.resize(790, 680)
+        self.setObjectName("profileDialog")
         root = QVBoxLayout(self)
         title = QLabel("Raccourcis · " + profile.name)
         title.setObjectName("heading")
         root.addWidget(title)
+        self.editor = ProfileEditor(profile, self)
+        root.addWidget(self.editor, 1)
+        save_btn = QPushButton("Enregistrer le profil")
+        save_btn.clicked.connect(self.accept)
+        root.addWidget(save_btn)
+
+    @property
+    def profile(self) -> Profile:
+        return self.editor.profile
+
+
+class ProfileEditor(QWidget):
+    def __init__(self, profile: Profile, parent=None):
+        super().__init__(parent)
+        self.profile = copy.deepcopy(profile)
+        self.setObjectName("profileEditor")
+        root = QVBoxLayout(self)
         scroll = QScrollArea()
+        scroll.setObjectName("profileScroll")
+        scroll.viewport().setAutoFillBackground(False)
         scroll.setWidgetResizable(True)
         host = QWidget()
+        host.setAutoFillBackground(False)
         self.sections = QVBoxLayout(host)
         scroll.setWidget(host)
         root.addWidget(scroll)
@@ -123,9 +161,6 @@ class ProfileDialog(QDialog):
         controls.addWidget(add_app)
         controls.addWidget(add_site)
         root.addLayout(controls)
-        save_btn = QPushButton("Enregistrer le profil")
-        save_btn.clicked.connect(self.accept)
-        root.addWidget(save_btn)
 
     def draw(self):
         while self.sections.count():
@@ -145,6 +180,23 @@ class ProfileDialog(QDialog):
             spin.setValue(getattr(self.profile, attr))
             spin.valueChanged.connect(lambda value, key=attr: setattr(self.profile, key, value))
             layout.addRow(label, spin)
+        magnet_control = QWidget()
+        magnet_layout = QHBoxLayout(magnet_control)
+        magnet = QSlider(Qt.Orientation.Horizontal)
+        magnet.setObjectName("magnetStrength")
+        magnet.setRange(0, 100)
+        magnet.setValue(round(self.profile.magnet_strength))
+        magnet.setToolTip("0 % désactive le magnétisme")
+        magnet_value = QLabel(f"{magnet.value()} %")
+
+        def update_magnet(value):
+            self.profile.magnet_strength = float(value)
+            magnet_value.setText(f"{value} %")
+
+        magnet.valueChanged.connect(update_magnet)
+        magnet_layout.addWidget(magnet)
+        magnet_layout.addWidget(magnet_value)
+        layout.addRow("Magnétisme", magnet_control)
         self.sections.addWidget(group)
 
     def _section(self, name: str, bindings: dict[str, Binding]):
@@ -201,6 +253,165 @@ class ProfileDialog(QDialog):
         if ok and domain and "." in domain and "/" not in domain and " " not in domain:
             self.profile.sites.setdefault(domain, {})
             self.draw()
+
+
+class ProfileCreationDialog(QDialog):
+    def __init__(self, models: list[str], parent=None):
+        super().__init__(parent)
+        self.existing_profiles = set(models)
+        self.setWindowTitle("Ajouter un profil")
+        self.setObjectName("profileCreationDialog")
+        self.resize(430, 190)
+        root = QVBoxLayout(self)
+        form = QFormLayout()
+        self.name_input = QLineEdit()
+        self.name_input.setObjectName("newProfileName")
+        form.addRow("Nom", self.name_input)
+        self.model_picker = QComboBox()
+        self.model_picker.setObjectName("profileModel")
+        self.model_picker.addItems(models)
+        form.addRow("Modèle", self.model_picker)
+        root.addLayout(form)
+        buttons = QHBoxLayout()
+        self.create_button = QPushButton("Créer le profil")
+        self.create_button.setObjectName("createProfile")
+        self.create_button.clicked.connect(self._create)
+        self.cancel_button = QPushButton("Annuler")
+        self.cancel_button.setObjectName("cancelProfile")
+        self.cancel_button.clicked.connect(self._confirm_cancel)
+        buttons.addStretch()
+        buttons.addWidget(self.create_button)
+        buttons.addWidget(self.cancel_button)
+        root.addLayout(buttons)
+        self.name_input.textChanged.connect(self._update_create_enabled)
+        self._update_create_enabled()
+
+    @property
+    def profile_name(self) -> str:
+        return self.name_input.text().strip()
+
+    @property
+    def model_name(self) -> str:
+        return self.model_picker.currentText()
+
+    def _update_create_enabled(self, *_):
+        self.create_button.setEnabled(
+            bool(self.profile_name) and self.profile_name not in self.existing_profiles)
+
+    def _create(self):
+        if not self.profile_name:
+            return
+        self.accept()
+
+    def _confirm_cancel(self):
+        answer = QMessageBox.question(
+            self, "Annuler la création",
+            "Êtes-vous sûre de vouloir annuler la création du profil en cours ?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if answer == QMessageBox.StandardButton.Yes:
+            self.reject()
+
+
+class SettingsDialog(QDialog):
+    def __init__(self, settings, parent=None):
+        super().__init__(parent)
+        self.settings = settings
+        self.profiles = copy.deepcopy(settings.profiles)
+        self.current_profile_name: str | None = None
+        self.profile_editor: ProfileEditor | None = None
+        self.setWindowTitle("Settings")
+        self.setObjectName("settingsDialog")
+        self.resize(790, 680)
+        root = QVBoxLayout(self)
+        self.tabs = QTabWidget()
+        self.tabs.setObjectName("settingsTabs")
+        root.addWidget(self.tabs, 1)
+
+        general_tab = QWidget()
+        general_layout = QVBoxLayout(general_tab)
+        startup_group = QGroupBox("Démarrage")
+        startup_layout = QVBoxLayout(startup_group)
+        self.startup_checkbox = QCheckBox("Lancer au démarrage")
+        self.startup_checkbox.setObjectName("startupEnabled")
+        self.startup_checkbox.setChecked(settings.startup_enabled)
+        self.minimized_checkbox = QCheckBox("Réduit dans la barre des tâches")
+        self.minimized_checkbox.setObjectName("startMinimized")
+        self.minimized_checkbox.setChecked(settings.start_minimized)
+        self.minimized_checkbox.setEnabled(self.startup_checkbox.isChecked())
+        self.startup_checkbox.toggled.connect(self.minimized_checkbox.setEnabled)
+        startup_layout.addWidget(self.startup_checkbox)
+        startup_layout.addWidget(self.minimized_checkbox)
+        general_layout.addWidget(startup_group)
+        general_layout.addStretch()
+        self.tabs.addTab(general_tab, "Général")
+
+        profiles_tab = QWidget()
+        profiles_layout = QVBoxLayout(profiles_tab)
+        self.profile_picker = QComboBox()
+        self.profile_picker.setObjectName("settingsProfilePicker")
+        self.profile_picker.addItems(self.profiles)
+        self.profile_picker.view().setStyleSheet(
+            "QListView { color:#f5f7fb; background:#1b355b; "
+            "selection-color:#ffffff; selection-background-color:#2765cc; }")
+        profiles_layout.addWidget(self.profile_picker)
+        self.profile_editor_host = QWidget()
+        self.profile_editor_layout = QVBoxLayout(self.profile_editor_host)
+        self.profile_editor_layout.setContentsMargins(0, 0, 0, 0)
+        profiles_layout.addWidget(self.profile_editor_host, 1)
+        self.add_profile_button = QPushButton("Ajouter un profil")
+        self.add_profile_button.setObjectName("addProfile")
+        self.add_profile_button.clicked.connect(self.add_profile)
+        profiles_layout.addWidget(self.add_profile_button, 0, Qt.AlignmentFlag.AlignRight)
+        self.profile_picker.currentIndexChanged.connect(self._select_profile)
+        self.tabs.addTab(profiles_tab, "Profils")
+        self._select_profile(self.profile_picker.currentIndex())
+
+        buttons = QHBoxLayout()
+        self.save_button = QPushButton("Enregistrer")
+        self.close_button = QPushButton("Fermer")
+        self.close_button.clicked.connect(self.reject)
+        buttons.addStretch()
+        buttons.addWidget(self.save_button)
+        buttons.addWidget(self.close_button)
+        root.addLayout(buttons)
+        self.save_button.clicked.connect(self._accept_settings)
+
+    def _accept_settings(self):
+        if self.current_profile_name is not None and self.profile_editor is not None:
+            self.profiles[self.current_profile_name] = self.profile_editor.profile
+        self.accept()
+
+    def _select_profile(self, index: int):
+        if self.current_profile_name is not None and self.profile_editor is not None:
+            self.profiles[self.current_profile_name] = self.profile_editor.profile
+            self.profile_editor_layout.removeWidget(self.profile_editor)
+            self.profile_editor.deleteLater()
+            self.profile_editor = None
+        if index < 0:
+            self.current_profile_name = None
+            return
+        name = self.profile_picker.itemText(index)
+        self.current_profile_name = name
+        self.profile_editor = ProfileEditor(self.profiles[name], self.profile_editor_host)
+        self.profile_editor_layout.addWidget(self.profile_editor)
+
+    def add_profile(self):
+        if self.current_profile_name is not None and self.profile_editor is not None:
+            self.profiles[self.current_profile_name] = self.profile_editor.profile
+        dialog = ProfileCreationDialog(list(self.profiles), self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        name = dialog.profile_name
+        if name in self.profiles:
+            QMessageBox.warning(self, "Profil existant", "Un profil porte déjà ce nom.")
+            return
+        profile = copy.deepcopy(self.profiles[dialog.model_name])
+        profile.name = name
+        self.profiles[name] = profile
+        self.profile_picker.addItem(name)
+        self.profile_picker.setCurrentIndex(self.profile_picker.count() - 1)
+
 
 class DraggableHeader(QWidget):
     def mousePressEvent(self, event):
@@ -271,6 +482,8 @@ class ControllerArtwork(QWidget):
             painter.drawEllipse(x, y, 7, 7)
         if self.connected and self.primary:
             crown = QPainterPath()
+            painter.save()
+            painter.translate(-9.5, 0)
             crown.moveTo(76, 24)
             crown.lineTo(73, 8)
             crown.lineTo(82, 15)
@@ -289,11 +502,13 @@ class ControllerArtwork(QWidget):
             painter.setBrush(QColor("#39a9ed"))
             painter.drawEllipse(78, 18, 3, 3)
             painter.drawEllipse(97, 18, 3, 3)
+            painter.restore()
 
 
 class ControllerSlot(QWidget):
     profile_changed = Signal(str, str)
     set_primary_requested = Signal(str)
+    forget_requested = Signal(str)
     WIDTH = 200
 
     def __init__(self, parent=None):
@@ -311,8 +526,15 @@ class ControllerSlot(QWidget):
         self.name = QLabel()
         self.name.setObjectName("controllerName")
         self.name.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.name.setFixedHeight(27)
+        self.name.setWordWrap(True)
+        self.name.setMinimumHeight(27)
         layout.addWidget(self.name)
+
+        self.forget_button = QPushButton("Oublier")
+        self.forget_button.setObjectName("forgetController")
+        self.forget_button.setFixedSize(84, 30)
+        self.forget_button.clicked.connect(self._request_forget)
+        layout.addWidget(self.forget_button, 0, Qt.AlignmentFlag.AlignHCenter)
 
         self.battery = QLabel()
         self.battery.setObjectName("batteryLabel")
@@ -324,9 +546,13 @@ class ControllerSlot(QWidget):
         self.battery_bar.setTextVisible(False)
         self.battery_bar.setFixedSize(112, 7)
         layout.addWidget(self.battery_bar, 0, Qt.AlignmentFlag.AlignHCenter)
+        layout.addSpacing(9)
 
         self.profile_picker = QComboBox()
         self.profile_picker.setObjectName("profilePicker")
+        self.profile_picker.view().setStyleSheet(
+            "QListView { color:#f5f7fb; background:#1b355b; "
+            "selection-color:#ffffff; selection-background-color:#2765cc; }")
         self.profile_picker.currentIndexChanged.connect(self._profile_selected)
         layout.addWidget(self.profile_picker, 0, Qt.AlignmentFlag.AlignHCenter)
 
@@ -347,6 +573,7 @@ class ControllerSlot(QWidget):
         self.name.style().polish(self.name)
         self.battery.setVisible(connected)
         self.battery_bar.setVisible(connected)
+        self.forget_button.setVisible(not connected)
         self.profile_picker.setVisible(connected)
         self.set_primary.setVisible(connected and connected_count > 1 and not primary)
         if connected:
@@ -383,6 +610,10 @@ class ControllerSlot(QWidget):
     def _request_primary(self):
         if self.device_key:
             self.set_primary_requested.emit(self.device_key)
+
+    def _request_forget(self):
+        if self.device_key:
+            self.forget_requested.emit(self.device_key)
 
 
 class MainWindow(QMainWindow):
@@ -446,7 +677,9 @@ class MainWindow(QMainWindow):
         body_layout.addWidget(self.previous_controllers[0], 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.controller_scroll = QScrollArea()
+        self.controller_scroll.setObjectName("controllerScroll")
         self.controller_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.controller_scroll.viewport().setAutoFillBackground(False)
         self.controller_scroll.setWidgetResizable(False)
         self.controller_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.controller_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -517,12 +750,12 @@ class MainWindow(QMainWindow):
         app.setWindowIcon(QIcon(str(APP_ICON)))
         self.tray = QSystemTrayIcon(QIcon(str(APP_ICON)), self)
         menu = QMenu()
+        menu.setObjectName("trayMenu")
+        menu.setStyleSheet(CSS)
         menu.addAction("Configuration", self.show_from_tray)
         menu.addAction("Quitter", app.quit)
         self.tray.setContextMenu(menu)
-        self.tray.activated.connect(
-            lambda reason: self.show_from_tray()
-            if reason == QSystemTrayIcon.ActivationReason.DoubleClick else None)
+        self.tray.activated.connect(self._tray_activated)
         self.tray.show()
 
     def refresh(self, *_):
@@ -552,6 +785,7 @@ class MainWindow(QMainWindow):
             slot = ControllerSlot()
             slot.profile_changed.connect(self.profile_selected)
             slot.set_primary_requested.connect(self.set_primary)
+            slot.forget_requested.connect(self.forget_device)
             self.slots.append(slot)
             self.controller_content_layout.addWidget(slot)
 
@@ -617,6 +851,26 @@ class MainWindow(QMainWindow):
             self._primary_snapshot = key
             self.refresh()
 
+    def forget_device(self, key: str):
+        if key in self.manager.controllers or key not in self.settings.known_devices:
+            return
+        name = self.settings.known_devices[key]
+        answer = QMessageBox.question(
+            self, "Oublier cette manette",
+            f"Oublier « {name} » et supprimer son attribution de profil ?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.settings.known_devices.pop(key)
+        self.settings.assignments.pop(key, None)
+        if self.settings.primary_device == key:
+            self.settings.primary_device = next(iter(self.manager.controllers), None)
+        save(self.settings)
+        self._known_snapshot = dict(self.settings.known_devices)
+        self._primary_snapshot = self.settings.primary_device
+        self.refresh()
+
     def manage_profiles(self):
         create_option = "+ Create profile"
         options = [*self.settings.profiles, create_option]
@@ -643,20 +897,36 @@ class MainWindow(QMainWindow):
             save(self.settings)
 
     def open_settings(self):
-        self.edit_profile()
+        dialog = SettingsDialog(self.settings, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self.settings.profiles = dialog.profiles
+        self.settings.startup_enabled = dialog.startup_checkbox.isChecked()
+        self.settings.start_minimized = dialog.minimized_checkbox.isChecked()
+        save(self.settings)
+        try:
+            configure_startup(self.settings)
+        except OSError as exc:
+            QMessageBox.warning(self, "squidz — Démarrage", str(exc))
 
     def new_profile(self):
-        name, ok = QInputDialog.getText(self, "New profile", "Profile name")
-        name = name.strip()
-        if ok and name and name not in self.settings.profiles:
-            self.settings.profiles[name] = copy.deepcopy(next(iter(self.settings.profiles.values())))
-            self.settings.profiles[name].name = name
-            save(self.settings)
-            self.refresh()
+        dialog = ProfileCreationDialog(list(self.settings.profiles), self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        profile = copy.deepcopy(self.settings.profiles[dialog.model_name])
+        profile.name = dialog.profile_name
+        self.settings.profiles[profile.name] = profile
+        save(self.settings)
+        self.refresh()
 
     def show_for_device(self, device):
         self.refresh()
         self.show_from_tray()
+
+    def _tray_activated(self, reason):
+        if reason in (QSystemTrayIcon.ActivationReason.Trigger,
+                      QSystemTrayIcon.ActivationReason.DoubleClick):
+            self.show_from_tray()
 
     def show_from_tray(self):
         self.showNormal()

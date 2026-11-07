@@ -27,6 +27,8 @@ class ControllerManager(QObject):
         self.power_levels: dict[str, str] = {}
         self.pressed: dict[tuple[str, str], float] = {}
         self.long_handled: set[tuple[str, str]] = set()
+        self.held_actions: dict[tuple[str, str], str] = {}
+        self.click_presses: set[tuple[str, str]] = set()
         self.scroll_acc: dict[str, float] = {}
         self.last_poll = time.monotonic()
         self.last_power_poll = 0.0
@@ -61,6 +63,11 @@ class ControllerManager(QObject):
             joysticks[key] = joy
             power_levels[key] = joy.get_power_level().lower()
             self.settings.known_devices[key] = joy.get_name()
+        for token in tuple(self.click_presses):
+            if token[0] not in discovered:
+                self._release_click(token)
+                self.pressed.pop(token, None)
+                self.long_handled.discard(token)
         self.controllers = discovered
         self.joysticks = joysticks
         self.power_levels = power_levels
@@ -76,17 +83,50 @@ class ControllerManager(QObject):
         return self.settings.profiles.get(name) or next(iter(self.settings.profiles.values()))
 
     def _dispatch(self, device, button):
-        p = self._profile(device)
-        app = windows.active_process()
-        domain = self.bridge.domain(app) if app in ("firefox.exe", "brave.exe") else ""
-        binding = p.resolve(button, app, domain)
         try:
+            binding = self._binding(device, button)
             if binding.action == "open_settings":
                 if device == self.settings.primary_device:
                     self.settings_requested.emit(device)
             else: windows.perform(binding.action, binding.keys)
         except Exception as exc:
             self.error.emit(str(exc))
+
+    def _binding(self, device, button):
+        profile = self._profile(device)
+        app = windows.active_process()
+        domain = self.bridge.domain(app) if app in ("firefox.exe", "brave.exe") else ""
+        return profile.resolve(button, app, domain)
+
+    def _press_button(self, device, button, now):
+        token = (device, button)
+        self.pressed[token] = now
+        try:
+            action = self._binding(device, button).action
+            if action.endswith("_click"):
+                self.click_presses.add(token)
+                windows.mouse_button_down(action.removesuffix("_click"))
+                self.held_actions[token] = action
+        except Exception as exc:
+            self.error.emit(str(exc))
+
+    def _release_click(self, token):
+        self.click_presses.discard(token)
+        action = self.held_actions.pop(token, None)
+        if action:
+            try:
+                windows.mouse_button_up(action.removesuffix("_click"))
+            except Exception as exc:
+                self.error.emit(str(exc))
+
+    def _release_button(self, device, button):
+        token = (device, button)
+        if token in self.click_presses:
+            self._release_click(token)
+        elif token not in self.long_handled:
+            self._dispatch(device, button)
+        self.pressed.pop(token, None)
+        self.long_handled.discard(token)
 
     def poll(self):
         try:
@@ -107,16 +147,13 @@ class ControllerManager(QObject):
                     token = (key, button)
                     down = bool(joy.get_button(index))
                     if down and token not in self.pressed:
-                        self.pressed[token] = now
+                        self._press_button(key, button, now)
                     if button == "home" and down and token not in self.long_handled and now - self.pressed[token] >= .8:
                         self.long_handled.add(token)
                         if key == self.settings.primary_device:
                             self.settings_requested.emit(key)
                     if not down and token in self.pressed:
-                        if token not in self.long_handled:
-                            self._dispatch(key, button)
-                        self.pressed.pop(token, None)
-                        self.long_handled.discard(token)
+                        self._release_button(key, button)
                 p = self._profile(key)
                 dz = max(0.0, min(.9, p.deadzone))
                 def axis(n):
@@ -124,7 +161,9 @@ class ControllerManager(QObject):
                     return 0.0 if abs(v) < dz else (abs(v) - dz) / (1 - dz) * (1 if v > 0 else -1)
                 # Speed normalized to ~60 Hz; right stick vertical scroll with accumulation.
                 x, y = axis(0), axis(1)
-                if x or y: windows.move(x * p.mouse_speed * dt * 60, y * p.mouse_speed * dt * 60)
+                if x or y:
+                    windows.move(x * p.mouse_speed * dt * 60, y * p.mouse_speed * dt * 60,
+                                 p.magnet_strength)
                 wheel = axis(3) * p.scroll_speed * dt * 10
                 acc = self.scroll_acc.get(key, 0) - wheel
                 steps = int(acc)
